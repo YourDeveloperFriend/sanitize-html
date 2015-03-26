@@ -117,6 +117,8 @@ function sanitizeHtml(html, options, _recursing) {
         skip = true;
         if (_.has(nonTextTagsMap, name)) {
           skipText = true;
+        } else if(_.contains(options.replaceNewLine, name) && stack.length) {
+          result += '\n';
         }
         skipMap[depth] = true;
       }
@@ -189,6 +191,9 @@ function sanitizeHtml(html, options, _recursing) {
       if (skipMap[depth]) {
         delete skipMap[depth];
         frame.updateParentNodeText();
+        if(_.contains(options.replaceNewLine, name)) {
+          result += '\n';
+        }
         return;
       }
 
@@ -270,7 +275,8 @@ sanitizeHtml.defaults = {
   // Lots of these won't come up by default because we don't allow them
   selfClosing: [ 'img', 'br', 'hr', 'area', 'base', 'basefont', 'input', 'link', 'meta' ],
   // URL schemes we permit
-  allowedSchemes: [ 'http', 'https', 'ftp', 'mailto' ]
+  allowedSchemes: [ 'http', 'https', 'ftp', 'mailto' ],
+  replaceNewLine: ['p', 'hr', 'br', 'div', 'li', 'nl', 'h3', 'h2', 'h1', 'h4', 'h5', 'h6']
 };
 
 sanitizeHtml.simpleTransform = function(newTagName, newAttribs, merge) {
