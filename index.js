@@ -117,7 +117,7 @@ function sanitizeHtml(html, options, _recursing) {
         skip = true;
         if (_.has(nonTextTagsMap, name)) {
           skipText = true;
-        } else if(name !== 'br' && _.contains(options.replaceNewLine, name) && result.substr(-1) !== '\n') {
+        } else if(name !== 'br' && _.contains(options.replaceNewLine, name) && result.length && result.substr(-1) !== '\n') {
           result += '\n';
         }
         skipMap[depth] = true;
