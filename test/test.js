@@ -43,6 +43,29 @@ describe('sanitizeHtml', function() {
   it('should drop the content of style elements', function() {
     assert.equal(sanitizeHtml('<style>.foo { color: blue; }</style><p>Paragraph</p>'), '<p>Paragraph</p>');
   });
+  it('should drop the content of textarea elements', function() {
+    assert.equal(sanitizeHtml('<textarea>Nifty</textarea><p>Paragraph</p>'), '<p>Paragraph</p>');
+  });
+  it('should drop the content of textarea elements but keep the closing parent tag, when nested', function() {
+    assert.equal(sanitizeHtml('<p>Paragraph<textarea>Nifty</textarea></p>'), '<p>Paragraph</p>');
+  });
+  it('should retain the content of fibble elements by default', function() {
+    assert.equal(sanitizeHtml('<fibble>Nifty</fibble><p>Paragraph</p>'), 'Nifty<p>Paragraph</p>');
+  });
+  it('should discard the content of fibble elements if specified for nonTextTags', function() {
+    assert.equal(sanitizeHtml('<fibble>Nifty</fibble><p>Paragraph</p>', { nonTextTags: [ 'fibble' ] }), '<p>Paragraph</p>');
+  });
+  it('should retain allowed tags within a fibble element if fibble is not specified for nonTextTags', function() {
+    assert.equal(sanitizeHtml('<fibble>Ni<em>f</em>ty</fibble><p>Paragraph</p>', {}), 'Ni<em>f</em>ty<p>Paragraph</p>');
+  });
+  it('should discard allowed tags within a fibble element if fibble is specified for nonTextTags', function() {
+    assert.equal(sanitizeHtml('<fibble>Ni<em>f</em>ty</fibble><p>Paragraph</p>', { nonTextTags: [ 'fibble' ] }), '<p>Paragraph</p>');
+  });
+  it('should preserve textarea content if textareas are allowed', function() {
+    assert.equal(sanitizeHtml('<textarea>Nifty</textarea><p>Paragraph</p>', {
+      allowedTags: [ 'textarea', 'p' ]
+    }), '<textarea>Nifty</textarea><p>Paragraph</p>');
+  });
   it('should preserve entities as such', function() {
     assert.equal(sanitizeHtml('<a name="&lt;silly&gt;">&lt;Kapow!&gt;</a>'), '<a name="&lt;silly&gt;">&lt;Kapow!&gt;</a>');
   });
@@ -98,6 +121,27 @@ describe('sanitizeHtml', function() {
         attribs: attribs
       }
     }}, allowedAttributes: { ul: ['bar', 'class'] } }), '<ul class="foo" bar="bar"><li>Hello world</li></ul>');
+  });
+
+  it('should replace text and attributes when they are changed by transforming function', function () {
+    assert.equal(sanitizeHtml('<a href="http://somelink">some text</a>', { transformTags: {a: function (tagName, attribs) {
+      return {
+        tagName: tagName,
+        attribs: attribs,
+        text: ''
+      }
+    }}}), '<a href="http://somelink"></a>');
+  });
+  it('should replace text and attributes when they are changed by transforming function and textFilter is set', function () {
+    assert.equal(sanitizeHtml('<a href="http://somelink">some text</a>', { transformTags: {a: function (tagName, attribs) {
+      return {
+        tagName: tagName,
+        attribs: attribs,
+        text: 'some text need"to<be>filtered'
+      }
+    }}, textFilter: function (text) {
+      return text.replace(/\s/g, '_');
+    }}), '<a href="http://somelink">some_text_need&quot;to&lt;be&gt;filtered</a>');
   });
 
   it('should skip an empty link', function() {
@@ -192,6 +236,38 @@ describe('sanitizeHtml', function() {
       '<p class="nifty">whee</p>'
     );
   });
+  it('should allow defining schemes on a per-tag basis', function() {
+    assert.equal(
+      sanitizeHtml(
+        // teeny-tiny valid transparent GIF in a data URL
+        '<img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" /><a href="https://www.example.com"></a>',
+        {
+          allowedTags: ['img', 'a'],
+          allowedSchemes: ['http'],
+          allowedSchemesByTag: {
+            img: ['data'],
+            a: ['https']
+          }
+        }
+      ),
+      '<img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" /><a href="https://www.example.com"></a>'
+    );
+    assert.equal(
+      sanitizeHtml(
+        // teeny-tiny valid transparent GIF in a data URL
+        '<img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" /><a href="https://www.example.com"></a>',
+        {
+          allowedTags: ['img', 'a'],
+          allowedSchemes: ['http'],
+          allowedSchemesByTag: {
+            img: [],
+            a: ['https']
+          }
+        }
+      ),
+      '<img /><a href="https://www.example.com"></a>'
+    );
+  });
   it('should not act weird when the class attribute is empty', function() {
     assert.equal(
       sanitizeHtml(
@@ -229,6 +305,20 @@ describe('sanitizeHtml', function() {
       // would probably be some way to make it come out as a
       // separate attribute
       '<img src="onmouseover=&quot;alert(\'XSS\');&quot;" />'
+    );
+  });
+  it('should allow only whitelisted attributes, but to any tags, if tag is declared as  "*"', function() {
+    assert.equal(
+        sanitizeHtml(
+            '<table bgcolor="1" align="left" notlisted="0"><img src="1.gif" align="center" alt="not listed too"/></table>',
+            {
+              allowedTags: [ 'table', 'img' ],
+              allowedAttributes: {
+                '*': [ 'bgcolor', 'align', 'src' ]
+              }
+            }
+        ),
+        '<table bgcolor="1" align="left"><img src="1.gif" align="center" /></table>'
     );
   });
   it('should not filter if exclusive filter does not match after transforming tags', function() {
@@ -287,6 +377,28 @@ describe('sanitizeHtml', function() {
       ''
     );
   });
+  it('should allow transform on all tags using \'*\'', function () {
+    assert.equal(
+      sanitizeHtml(
+        '<p>Text</p>',
+        {
+          allowedTags: [ 'p' ],
+          allowedAttributes: {p: ['style']},
+          transformTags: {
+            '*': function (tagName, attribs) {
+              return {
+                tagName: tagName,
+                attribs: {
+                  style: 'text-align: center;'
+                }
+              };
+            }
+          }
+        }
+      ),
+      '<p style="text-align: center;">Text</p>'
+    );
+  });
   it('should not be faked out by double <', function() {
     assert.equal(
       sanitizeHtml('<<img src="javascript:evil"/>img src="javascript:evil"/>'
@@ -340,6 +452,25 @@ describe('sanitizeHtml', function() {
           return text.replace(' this should be removed', '');
         }
       }), '&quot;normal text&quot;'
+    );
+  });
+  it('should respect htmlparser2 options when passed in', function() {
+    assert.equal(
+      sanitizeHtml("<Archer><Sterling>I am</Sterling></Archer>", {
+        allowedTags: false,
+        allowedAttributes: false,
+      }),
+      "<archer><sterling>I am</sterling></archer>"
+    );
+    assert.equal(
+      sanitizeHtml("<Archer><Sterling>I am</Sterling></Archer>", {
+        allowedTags: false,
+        allowedAttributes: false,
+        parser: {
+          lowerCaseTags: false
+        }
+      }),
+      "<Archer><Sterling>I am</Sterling></Archer>"
     );
   });
 });

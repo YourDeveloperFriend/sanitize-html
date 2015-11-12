@@ -1,6 +1,12 @@
 var htmlparser = require('htmlparser2');
-var _ = require('lodash');
+var extend = require('xtend');
 var quoteRegexp = require('regexp-quote');
+
+function each(obj, cb) {
+  if (obj) Object.keys(obj).forEach(function (key) {
+    cb(obj[key], key);
+  });
+}
 
 module.exports = sanitizeHtml;
 
@@ -28,67 +34,65 @@ function sanitizeHtml(html, options, _recursing) {
 
   if (!options) {
     options = sanitizeHtml.defaults;
+    options.parser = htmlParserDefaults;
   } else {
-    _.defaults(options, sanitizeHtml.defaults);
+    options = extend(sanitizeHtml.defaults, options);
+    if (options.parser) {
+      options.parser = extend(htmlParserDefaults, options.parser);
+    } else {
+      options.parser = htmlParserDefaults;
+    }
   }
-  // Tags that contain something other than HTML. If we are not allowing
-  // these tags, we should drop their content too. For other tags you would
-  // drop the tag but keep its content.
-  var nonTextTagsMap = {
-    script: true,
-    style: true
-  };
-  var allowedTagsMap;
-  if(options.allowedTags) {
-    allowedTagsMap = {};
-    _.each(options.allowedTags, function(tag) {
-      allowedTagsMap[tag] = true;
-    });
-  }
-  var selfClosingMap = {};
-  _.each(options.selfClosing, function(tag) {
-    selfClosingMap[tag] = true;
-  });
+
+  // Tags that contain something other than HTML, or where discarding
+  // the text when the tag is disallowed makes sense for other reasons.
+  // If we are not allowing these tags, we should drop their content too.
+  // For other tags you would drop the tag but keep its content.
+  var nonTextTagsArray = options.nonTextTags || [ 'script', 'style', 'textarea' ];
   var allowedAttributesMap;
   var allowedAttributesGlobMap;
   if(options.allowedAttributes) {
     allowedAttributesMap = {};
     allowedAttributesGlobMap = {};
-    _.each(options.allowedAttributes, function(attributes, tag) {
-      allowedAttributesMap[tag] = {};
+    each(options.allowedAttributes, function(attributes, tag) {
+      allowedAttributesMap[tag] = [];
       var globRegex = [];
-      _.each(attributes, function(name) {
+      attributes.forEach(function(name) {
         if(name.indexOf('*') >= 0) {
           globRegex.push(quoteRegexp(name).replace(/\\\*/g, '.*'));
         } else {
-          allowedAttributesMap[tag][name] = true;
+          allowedAttributesMap[tag].push(name);
         }
       });
       allowedAttributesGlobMap[tag] = new RegExp('^(' + globRegex.join('|') + ')$');
     });
   }
   var allowedClassesMap = {};
-  _.each(options.allowedClasses, function(classes, tag) {
+  each(options.allowedClasses, function(classes, tag) {
     // Implicitly allows the class attribute
     if(allowedAttributesMap) {
       if (!allowedAttributesMap[tag]) {
-        allowedAttributesMap[tag] = {};
+        allowedAttributesMap[tag] = [];
       }
-      allowedAttributesMap[tag]['class'] = true;
+      allowedAttributesMap[tag].push('class');
     }
 
-    allowedClassesMap[tag] = {};
-    _.each(classes, function(name) {
-      allowedClassesMap[tag][name] = true;
-    });
+    allowedClassesMap[tag] = classes;
   });
 
   var transformTagsMap = {};
-  _.each(options.transformTags, function(transform, tag){
+  var transformTagsAll;
+  each(options.transformTags, function(transform, tag) {
+    var transFun;
     if (typeof transform === 'function') {
-      transformTagsMap[tag] = transform;
+      transFun = transform;
     } else if (typeof transform === "string") {
-      transformTagsMap[tag] = sanitizeHtml.simpleTransform(transform);
+      transFun = sanitizeHtml.simpleTransform(transform);
+    }
+    if (tag === '*') {
+      transformTagsAll = transFun;
+    } else {
+      transformTagsMap[tag] = transFun;
     }
   });
 
@@ -97,14 +101,35 @@ function sanitizeHtml(html, options, _recursing) {
   var skipMap = {};
   var transformMap = {};
   var skipText = false;
+  var skipTextDepth = 0;
+
   var parser = new htmlparser.Parser({
     onopentag: function(name, attribs) {
+      if (skipText) {
+        skipTextDepth++;
+        return;
+      }
       var frame = new Frame(name, attribs);
       stack.push(frame);
 
       var skip = false;
-      if (_.has(transformTagsMap, name)) {
-        var transformedTag = transformTagsMap[name](name, attribs);
+      var transformedTag;
+      if (transformTagsMap[name]) {
+        transformedTag = transformTagsMap[name](name, attribs);
+
+        frame.attribs = attribs = transformedTag.attribs;
+
+        if (transformedTag.text !== undefined) {
+          frame.innerText = transformedTag.text;
+        }
+
+        if (name !== transformedTag.tagName) {
+          frame.name = name = transformedTag.tagName;
+          transformMap[depth] = transformedTag.tagName;
+        }
+      }
+      if (transformTagsAll) {
+        transformedTag = transformTagsAll(name, attribs);
 
         frame.attribs = attribs = transformedTag.attribs;
         if (name !== transformedTag.tagName) {
@@ -113,10 +138,11 @@ function sanitizeHtml(html, options, _recursing) {
         }
       }
 
-      if (allowedTagsMap && !_.has(allowedTagsMap, name)) {
+      if (options.allowedTags && options.allowedTags.indexOf(name) === -1) {
         skip = true;
-        if (_.has(nonTextTagsMap, name)) {
+        if (nonTextTagsArray.indexOf(name) !== -1) {
           skipText = true;
+          skipTextDepth = 1;
         } else if(name !== 'br' && _.contains(options.replaceNewLine, name) && result.length && result.substr(-1) !== '\n') {
           result += '\n';
         }
@@ -128,12 +154,15 @@ function sanitizeHtml(html, options, _recursing) {
         return;
       }
       result += '<' + name;
-      if (!allowedAttributesMap || _.has(allowedAttributesMap, name)) {
-        _.each(attribs, function(value, a) {
-          if (!allowedAttributesMap || _.has(allowedAttributesMap[name], a) || (_.has(allowedAttributesGlobMap, name) &&
-              allowedAttributesGlobMap[name].test(a))) {
+      if (!allowedAttributesMap || allowedAttributesMap[name] || allowedAttributesMap['*']) {
+        each(attribs, function(value, a) {
+          if (!allowedAttributesMap ||
+              (allowedAttributesMap[name] && allowedAttributesMap[name].indexOf(a) !== -1 ) ||
+              (allowedAttributesMap['*'] && allowedAttributesMap['*'].indexOf(a) !== -1 ) ||
+              (allowedAttributesGlobMap[name] && allowedAttributesGlobMap[name].test(a)) ||
+              (allowedAttributesGlobMap['*'] && allowedAttributesGlobMap['*'].test(a))) {
             if ((a === 'href') || (a === 'src')) {
-              if (naughtyHref(value)) {
+              if (naughtyHref(name, value)) {
                 delete frame.attribs[a];
                 return;
               }
@@ -154,7 +183,7 @@ function sanitizeHtml(html, options, _recursing) {
           }
         });
       }
-      if (_.has(selfClosingMap, name)) {
+      if (options.selfClosing.indexOf(name) !== -1) {
         result += " />";
       } else {
         result += ">";
@@ -164,8 +193,16 @@ function sanitizeHtml(html, options, _recursing) {
       if (skipText) {
         return;
       }
-      var tag = stack[stack.length-1] && stack[stack.length-1].tag;
-      if (_.has(nonTextTagsMap, tag)) {
+      var lastFrame = stack[stack.length-1];
+      var tag;
+
+      if (lastFrame) {
+        tag = lastFrame.tag;
+        // If inner text was set by transform function then let's use it
+        text = lastFrame.innerText !== undefined ? lastFrame.innerText : text;
+      }
+
+      if (nonTextTagsArray.indexOf(tag) !== -1) {
         result += text;
       } else {
         var escaped = escapeHtml(text);
@@ -181,6 +218,16 @@ function sanitizeHtml(html, options, _recursing) {
       }
     },
     onclosetag: function(name) {
+
+      if (skipText) {
+        skipTextDepth--;
+        if (!skipTextDepth) {
+          skipText = false;
+        } else {
+          return;
+        }
+      }
+
       var frame = stack.pop();
       if (!frame) {
         // Do not crash on bad markup
@@ -209,15 +256,14 @@ function sanitizeHtml(html, options, _recursing) {
 
       frame.updateParentNodeText();
 
-      if (_.has(selfClosingMap, name)) {
+      if (options.selfClosing.indexOf(name) !== -1) {
          // Already output />
          return;
       }
 
       result += "</" + name + ">";
     }
-  }, { decodeEntities: true });
-
+  }, options.parser);
   parser.write(html);
   parser.end();
 
@@ -230,7 +276,7 @@ function sanitizeHtml(html, options, _recursing) {
     return s.replace(/\&/g, '&amp;').replace(/</g, '&lt;').replace(/\>/g, '&gt;').replace(/\"/g, '&quot;');
   }
 
-  function naughtyHref(href) {
+  function naughtyHref(name, href) {
     // Browsers ignore character codes of 32 (space) and below in a surprising
     // number of situations. Start reading here:
     // https://www.owasp.org/index.php/XSS_Filter_Evasion_Cheat_Sheet#Embedded_tab
@@ -246,7 +292,12 @@ function sanitizeHtml(html, options, _recursing) {
       return false;
     }
     var scheme = matches[1].toLowerCase();
-    return (!_.contains(options.allowedSchemes, scheme));
+
+    if (options.allowedSchemesByTag[name]) {
+      return options.allowedSchemesByTag[name].indexOf(scheme) === -1;
+    }
+
+    return !options.allowedSchemes || options.allowedSchemes.indexOf(scheme) === -1;
   }
 
   function filterClasses(classes, allowed) {
@@ -255,8 +306,8 @@ function sanitizeHtml(html, options, _recursing) {
       return classes;
     }
     classes = classes.split(/\s+/);
-    return _.filter(classes, function(c) {
-      return _.has(allowed, c);
+    return classes.filter(function(clss) {
+      return allowed.indexOf(clss) !== -1;
     }).join(' ');
   }
 }
@@ -264,8 +315,13 @@ function sanitizeHtml(html, options, _recursing) {
 // Defaults are accessible to you so that you can use them as a starting point
 // programmatically if you wish
 
+var htmlParserDefaults = {
+  decodeEntities: true
+};
 sanitizeHtml.defaults = {
-  allowedTags: [ 'h3', 'h4', 'h5', 'h6', 'blockquote', 'p', 'a', 'ul', 'ol', 'nl', 'li', 'b', 'i', 'strong', 'em', 'strike', 'code', 'hr', 'br', 'div', 'table', 'thead', 'caption', 'tbody', 'tr', 'th', 'td', 'pre' ],
+  allowedTags: [ 'h3', 'h4', 'h5', 'h6', 'blockquote', 'p', 'a', 'ul', 'ol',
+    'nl', 'li', 'b', 'i', 'strong', 'em', 'strike', 'code', 'hr', 'br', 'div',
+    'table', 'thead', 'caption', 'tbody', 'tr', 'th', 'td', 'pre' ],
   allowedAttributes: {
     a: [ 'href', 'name', 'target' ],
     // We don't currently allow img itself by default, but this
@@ -276,7 +332,8 @@ sanitizeHtml.defaults = {
   selfClosing: [ 'img', 'br', 'hr', 'area', 'base', 'basefont', 'input', 'link', 'meta' ],
   // URL schemes we permit
   allowedSchemes: [ 'http', 'https', 'ftp', 'mailto' ],
-  replaceNewLine: ['p', 'hr', 'br', 'div', 'li', 'nl', 'h3', 'h2', 'h1', 'h4', 'h5', 'h6']
+  replaceNewLine: ['p', 'hr', 'br', 'div', 'li', 'nl', 'h3', 'h2', 'h1', 'h4', 'h5', 'h6'],
+  allowedSchemesByTag: {}
 };
 
 sanitizeHtml.simpleTransform = function(newTagName, newAttribs, merge) {

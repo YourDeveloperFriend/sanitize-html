@@ -22,54 +22,82 @@ HTML comments are not preserved.
 
 ## How to use
 
-    npm install sanitize-html
+Install module from console:
 
-    var sanitizeHtml = require('sanitize-html');
+```bash
+npm install sanitize-html
+```
 
-    var dirty = 'some really tacky HTML';
-    var clean = sanitizeHtml(dirty);
+Use it in your node app:
+
+```js
+var sanitizeHtml = require('sanitize-html');
+
+var dirty = 'some really tacky HTML';
+var clean = sanitizeHtml(dirty);
+```
 
 That will allow our default list of allowed tags and attributes through. It's a nice set, but probably not quite what you want. So:
 
-    // Allow only a super restricted set of tags and attributes
-    clean = sanitizeHtml(dirty, {
-      allowedTags: [ 'b', 'i', 'em', 'strong', 'a' ],
-      allowedAttributes: {
-        'a': [ 'href' ]
-      }
-    });
+```js
+// Allow only a super restricted set of tags and attributes
+clean = sanitizeHtml(dirty, {
+  allowedTags: [ 'b', 'i', 'em', 'strong', 'a' ],
+  allowedAttributes: {
+    'a': [ 'href' ]
+  }
+});
+```
 
 Boom!
 
-"I like your set but I want to add one more tag. Is there a convenient way?" Sure:
+#### "I like your set but I want to add one more tag. Is there a convenient way?" Sure:
 
-    clean = sanitizeHtml(dirty, {
-      allowedTags: sanitizeHtml.defaults.allowedTags.concat([ 'img' ])
-    });
+```js
+clean = sanitizeHtml(dirty, {
+  allowedTags: sanitizeHtml.defaults.allowedTags.concat([ 'img' ])
+});
+```
 
 If you do not specify `allowedTags` or `allowedAttributes` our default list is applied. So if you really want an empty list, specify one.
 
-"What are the default options?"
+#### "What are the default options?"
 
-    allowedTags: [ 'h3', 'h4', 'h5', 'h6', 'blockquote', 'p', 'a', 'ul', 'ol', 'nl', 'li', 'b', 'i', 'strong', 'em', 'strike', 'code', 'hr', 'br', 'div', 'table', 'thead', 'caption', 'tbody', 'tr', 'th', 'td', 'pre' ],
-    allowedAttributes: {
-      a: [ 'href', 'name', 'target' ],
-      // We don't currently allow img itself by default, but this
-      // would make sense if we did
-      img: [ 'src' ]
-    },
-    // Lots of these won't come up by default because we don't allow them
-    selfClosing: [ 'img', 'br', 'hr', 'area', 'base', 'basefont', 'input', 'link', 'meta' ],
-    // URL schemes we permit
-    allowedSchemes: [ 'http', 'https', 'ftp', 'mailto' ]
+```js
+allowedTags: [ 'h3', 'h4', 'h5', 'h6', 'blockquote', 'p', 'a', 'ul', 'ol',
+  'nl', 'li', 'b', 'i', 'strong', 'em', 'strike', 'code', 'hr', 'br', 'div',
+  'table', 'thead', 'caption', 'tbody', 'tr', 'th', 'td', 'pre' ],
+allowedAttributes: {
+  a: [ 'href', 'name', 'target' ],
+  // We don't currently allow img itself by default, but this
+  // would make sense if we did
+  img: [ 'src' ]
+},
+// Lots of these won't come up by default because we don't allow them
+selfClosing: [ 'img', 'br', 'hr', 'area', 'base', 'basefont', 'input', 'link', 'meta' ],
+// URL schemes we permit
+allowedSchemes: [ 'http', 'https', 'ftp', 'mailto' ],
+allowedSchemesByTag: {}
+```
 
-"What if I want to allow all tags or all attributes?"
+#### "What if I want to allow all tags or all attributes?"
 
 Simple! instead of leaving `allowedTags` or `allowedAttributes` out of the options, set either
 one or both to `false`:
 
-    allowedTags: false,
-    allowedAttributes: false
+```js
+allowedTags: false,
+allowedAttributes: false
+```
+
+#### "What if I don't want to allow *any* tags?"
+
+Also simple!  Set your `allowedTag` and `allowedAttributes` to empty arrays (`[]`).
+
+```js
+allowedTags: [],
+allowedAttributes: []
+```
 
 ### Wildcards for attributes
 
@@ -81,46 +109,78 @@ allowedAttributes: {
 }
 ```
 
+Also you can use the `*` as name for a tag, to allow listed attributes to be valid for any tag:
+
+```javascript
+allowedAttributes: {
+  '*': [ 'href', 'align', 'alt', 'center', 'bgcolor' ]
+}
+```
+
+### htmlparser2 Options
+
+`santizeHtml` is built on `htmlparser2`. By default the only option passed down is `decodeEntities: true` You can set the options to pass by using the parser option.
+
+```javascript
+clean = sanitizeHtml(dirty, {
+  allowedTags: ['a'],
+  parser: {
+    lowerCaseTags: true
+  }
+});
+```
+See the [htmlparser2 wiki] (https://github.com/fb55/htmlparser2/wiki/Parser-options) for the full list of possible options.
+
 ### Transformations
 
 What if you want to add or change an attribute? What if you want to transform one tag to another? No problem, it's simple!
 
 The easiest way (will change all `ol` tags to `ul` tags):
 
-    clean = sanitizeHtml(dirty, {
-      transformTags: {
-        'ol': 'ul',
-      }
-    });
+```js
+clean = sanitizeHtml(dirty, {
+  transformTags: {
+    'ol': 'ul',
+  }
+});
+```
 
 The most advanced usage:
 
-    clean = sanitizeHtml(dirty, {
-      transformTags: {
-        'ol': function(tagName, attribs) {
-            // My own custom magic goes here
+```js
+clean = sanitizeHtml(dirty, {
+  transformTags: {
+    'ol': function(tagName, attribs) {
+        // My own custom magic goes here
 
-            return {
-                tagName: 'ul',
-                attribs: {
-                    class: 'foo'
-                }
-            };
-        }
-      }
-    });
+        return {
+            tagName: 'ul',
+            attribs: {
+                class: 'foo'
+            }
+        };
+    }
+  }
+});
+```
+
+You can specify the `*` wildcard instead of a tag name to transform all tags.
 
 There is also a helper method which should be enough for simple cases in which you want to change the tag and/or add some attributes:
 
-    clean = sanitizeHtml(dirty, {
-      transformTags: {
-        'ol': sanitizeHtml.simpleTransform('ul', {class: 'foo'}),
-      }
-    });
+```js
+clean = sanitizeHtml(dirty, {
+  transformTags: {
+    'ol': sanitizeHtml.simpleTransform('ul', {class: 'foo'}),
+  }
+});
+```
 
 The `simpleTransform` helper method has 3 parameters:
 
-    simpleTransform(newTag, newAttributes, shouldMerge)
+```js
+simpleTransform(newTag, newAttributes, shouldMerge)
+```
 
 The last parameter (`shouldMerge`) is set to `true` by default. When `true`, `simpleTransform` will merge the current attributes with the new ones (`newAttributes`). When `false`, all existing attributes are discarded.
 
@@ -136,12 +196,12 @@ We can do that with the following filter:
 
 ```javascript
 sanitizeHtml(
-    '<p>This is <a href="http://www.linux.org"></a><br/>Linux</p>',
-    {
-        exclusiveFilter: function(frame) {
-            return frame.tag === 'a' && !frame.text.trim();
-        }
+  '<p>This is <a href="http://www.linux.org"></a><br/>Linux</p>',
+  {
+    exclusiveFilter: function(frame) {
+        return frame.tag === 'a' && !frame.text.trim();
     }
+  }
 );
 ```
 
@@ -162,12 +222,12 @@ We can do that with the following filter:
 
 ```javascript
 sanitizeHtml(
-    '<p>some text...</p>',
-    {
-        textFilter: function(text) {
-            return text.replace(/\.\.\./, '&hellip;');
-        }
+  '<p>some text...</p>',
+  {
+    textFilter: function(text) {
+      return text.replace(/\.\.\./, '&hellip;');
     }
+  }
 );
 ```
 
@@ -193,7 +253,9 @@ clean = sanitizeHtml(dirty, {
 
 By default we allow the following URL schemes in cases where `href`, `src`, etc. are allowed:
 
+```js
 [ 'http', 'https', 'ftp', 'mailto' ]
+```
 
 You can override this if you want to:
 
@@ -208,7 +270,56 @@ sanitizeHtml(
 );
 ```
 
+You can also allow a scheme for a particular tag only:
+
+```javascript
+allowedSchemes: [ 'http', 'https' ],
+allowedSchemesByTag: {
+  img: [ 'data' ]
+}
+```
+
+### Discarding the entire contents of a disallowed tag
+
+Normally, with a few exceptions, if a tag is not allowed, all of the text within it is preserved, and so are any allowed tags within it.
+
+The exceptions are:
+
+`style`, `script`, `textarea`
+
+If you wish to expand this list, for instance to discard whatever is found inside a `noscript` tag, use the `nonTextTags` option:
+
+```javascript
+nonTextTags: [ 'style', 'script', 'textarea', 'noscript' ]
+```
+
+Note that if you use this option you are responsible for stating the entire list. This gives you the power to retain the content of `textarea`, if you want to.
+
 ## Changelog
+
+1.11.1: fixed a regression introduced in 1.11.0 which caused the closing tag of the parent of a `textarea` tag to be lost. Thanks to Stefano Sala, who contributed the missing test.
+
+1.11.0: added the `nonTextTags` option, with tests.
+
+1.10.1: documentation cleanup. No code changes. Thanks to Rex Schrader.
+
+1.10.0: `allowedAttributes` now allows you to allow attributes for all tags by specifying `*` as the tag name. Thanks to Zdravko Georgiev.
+
+1.9.0: `parser` option allows options to be passed directly to `htmlparser2. Thanks to Danny Scott.
+
+1.8.0:
+
+* `transformTags` now accepts the `*` wildcard to transform all tags. Thanks to Jamy Timmermans.
+
+* Text that has been modified by `transformTags` is then passed through `textFilter`. Thanks to Pavlo Yurichuk.
+
+* Content inside `textarea` is discarded if `textarea` is not allowed. I don't know why it took me this long to see that this is just common sense. Thanks to David Frank.
+
+1.7.2: removed `array-includes` dependency in favor of `indexOf`, which is a little more verbose but slightly faster and doesn't require a shim. Thanks again to Joseph Dykstra.
+
+1.7.1: removed lodash dependency, adding lighter dependencies and polyfills in its place. Thanks to Joseph Dykstra.
+
+1.7.0: introduced `allowedSchemesByTag` option. Thanks to Cameron Will.
 
 1.6.1: the string `'undefined'` (as opposed to `undefined`) is perfectly valid text and shouldn't be expressly converted to the empty string.
 
@@ -281,3 +392,5 @@ We're rocking our tests and have been working great in production for months, so
 Feel free to open issues on [github](http://github.com/punkave/sanitize-html).
 
 <a href="http://punkave.com/"><img src="https://raw.github.com/punkave/sanitize-html/master/logos/logo-box-builtby.png" /></a>
+
+
