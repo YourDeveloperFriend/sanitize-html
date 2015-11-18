@@ -1,3 +1,4 @@
+var _ = require('lodash');
 var htmlparser = require('htmlparser2');
 var extend = require('xtend');
 var quoteRegexp = require('regexp-quote');
